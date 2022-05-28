@@ -1,7 +1,7 @@
 import numpy as np
 from rlgym.utils import RewardFunction
 from rlgym.utils.common_values import BLUE_GOAL_BACK, ORANGE_GOAL_BACK, BALL_MAX_SPEED, BACK_NET_Y, BACK_WALL_Y, \
-    BALL_RADIUS, BLUE_TEAM, ORANGE_TEAM
+    BALL_RADIUS, BLUE_TEAM, ORANGE_TEAM, CEILING_Z
 from rlgym_compat import GameState, PlayerData
 
 
@@ -29,11 +29,11 @@ class TouchBallReward(RewardFunction):
         pass
 
     def get_reward(self, player: PlayerData, state: GameState, previous_action: np.ndarray) -> float:
-        if player.ball_touched:
-            return state.ball.linear_velocity / BALL_MAX_SPEED
+        return (np.linalg.norm(state.ball.linear_velocity) / BALL_MAX_SPEED * (
+                    state.ball.position[2] / (CEILING_Z * 2))) if player.ball_touched else 0
 
 
-class LiuDistanceBallToGoalReward(RewardFunction):
+class DistanceBallToGoalReward(RewardFunction):
     def __init__(self):
         super().__init__()
 

@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 from rlgym.utils import RewardFunction
 from rlgym.utils.common_values import CEILING_Z, CAR_MAX_SPEED
@@ -9,8 +11,7 @@ class OnGroundReward(RewardFunction):
         pass
 
     def get_reward(self, player: PlayerData, state: GameState, previous_action: np.ndarray) -> float:
-        if player.on_ground:
-            return 1
+        return 1 if player.on_ground else 0
 
 
 class CarSpeedReward(RewardFunction):
@@ -18,5 +19,12 @@ class CarSpeedReward(RewardFunction):
         pass
 
     def get_reward(self, player: PlayerData, state: GameState, previous_action: np.ndarray) -> float:
-        print(player.car_data.linear_velocity / CAR_MAX_SPEED)
-        return player.car_data.linear_velocity / CAR_MAX_SPEED
+        return np.linalg.norm(player.car_data.linear_velocity) / CAR_MAX_SPEED
+
+
+class ConserveBoostReward(RewardFunction):
+    def reset(self, initial_state: GameState):
+        pass
+
+    def get_reward(self, player: PlayerData, state: GameState, previous_action: np.ndarray) -> float:
+        return math.sqrt(player.boost_amount)

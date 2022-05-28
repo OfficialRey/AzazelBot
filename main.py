@@ -2,7 +2,6 @@ import numpy as np
 from rlgym.envs.match import Match
 
 from rlgym.utils.action_parsers import DiscreteAction
-from rlgym.utils.obs_builders import AdvancedObs
 from rlgym.utils.reward_functions import CombinedReward
 from rlgym.utils.reward_functions.common_rewards import EventReward
 from rlgym.utils.state_setters import DefaultState
@@ -16,7 +15,8 @@ from stable_baselines3.ppo import MlpPolicy
 
 from rewards.environmental_rewards import ConstantReward
 from rewards.car_rewards import CarSpeedReward, OnGroundReward
-from rewards.ball_rewards import VelocityBallToGoalReward, TouchBallReward
+from rewards.ball_rewards import VelocityBallToGoalReward, TouchBallReward, DistanceBallToGoalReward
+from obs.bot_obs import BotObs
 
 # Hyper Parameters
 tick_skip = 8
@@ -27,7 +27,7 @@ gamma = np.exp(np.log(0.5) / (fps * half_life_seconds))  # Quick mafs
 # Match Data
 team_size = 3
 num_agents = team_size * 2
-num_instances = 1
+num_instances = 6
 
 # Training Data
 target_steps = 1_000_000
@@ -35,7 +35,7 @@ steps = target_steps // (num_instances * num_agents)
 batch_size = target_steps // 10
 training_interval = 25_000_000
 save_frequency = 50_000_000
-n_epochs = 16
+n_epochs = 10
 
 # Global Variables
 env: SB3MultipleInstanceEnv
@@ -43,21 +43,26 @@ model: PPO
 callback: CheckpointCallback
 model_name: str = 'RLGymModel'
 
+# Set to true to watch match
+watch_match = False
+
 
 def init_environment():
+    print("Creating environments... This may take a while.")
     global env
-    env = SB3MultipleInstanceEnv(get_match, num_instances)
+    env = SB3MultipleInstanceEnv(get_match, num_instances - watch_match, wait_time=15)
     env = VecCheckNan(env)
     env = VecMonitor(env)
     env = VecNormalize(env, norm_obs=False, gamma=gamma)
 
 
 def init_model():
+    frame_text("Trying to load model...")
     global model
     global callback
     try:
         model = PPO.load(
-            "models/exit_save.zip",
+            f'models/{model_name}',
             env,
             device="auto",
             custom_objects={
@@ -73,7 +78,8 @@ def init_model():
         from torch.nn import Tanh
         policy_kwargs = dict(
             activation_fn=Tanh,
-            net_arch=[512, 1024, 1024, 512, 512, 512, 512, 256, 256, dict(pi=[256, 256, 256], vf=[256, 256, 256])],
+            net_arch=[512, 1024, 1024, 512, 512, 512, 512, 256, 256,
+                      dict(pi=[256, 256, 256], vf=[256, 256, 256])],
         )
         model = PPO(
             MlpPolicy,
@@ -90,7 +96,6 @@ def init_model():
             tensorboard_log="logs",  # `tensorboard --logdir out/logs` in terminal to see graphs
             device="auto"  # Uses GPU if available
         )
-
     callback = CheckpointCallback(round(5_000_000 / env.num_envs), save_path="models", name_prefix="rl_model")
 
 
@@ -98,7 +103,6 @@ def get_match():
     return Match(
         team_size=team_size,
         tick_skip=tick_skip,
-
         reward_function=CombinedReward(
             (
                 # Environmental
@@ -111,6 +115,7 @@ def get_match():
                 # Ball
                 VelocityBallToGoalReward(),
                 TouchBallReward(),
+                DistanceBallToGoalReward(),
 
                 # Events
                 EventReward(
@@ -132,6 +137,7 @@ def get_match():
                 # Ball
                 1.0,
                 0.3,
+                0.7,
 
                 # Events
                 1.0
@@ -139,7 +145,7 @@ def get_match():
         ),
         gravity=1,
         game_speed=100,
-        obs_builder=AdvancedObs(),
+        obs_builder=BotObs(),
         state_setter=DefaultState(),
         action_parser=DiscreteAction(),
         spawn_opponents=False,
@@ -149,20 +155,33 @@ def get_match():
 
 
 def train_model():
-    save_target_count = model.num_timesteps + save_frequency
-    while True:
-        model.learn(training_interval)
-        save_model()
+    try:
+        frame_text("Training model.")
+        save_target_count = model.num_timesteps + save_frequency
+        while True:
+            model.learn(training_interval, callback=callback, reset_num_timesteps=False)
+            save_model()
 
-        if model.num_timesteps >= save_target_count:
-            model.save(f'models/mmr/{model.num_timesteps}')
-            print(f'Saving mmr model. ({model.num_timesteps} steps)')
-            save_target_count += save_frequency
+            if model.num_timesteps >= save_target_count:
+                model.save(f'models/mmr/{model.num_timesteps}')
+                frame_text(f'Saving mmr model. ({model.num_timesteps} steps)')
+                save_target_count += save_frequency
+
+    except KeyboardInterrupt:
+        save_model()
 
 
 def save_model():
     model.save(f'models/{model_name}')
-    print(f'Saving model. ({model.num_timesteps} steps)')
+    frame_text(f'Saving model. ({model.num_timesteps} steps)')
+
+
+def frame_text(text):
+    print("")
+    print("---------------------------------------")
+    print(text)
+    print("---------------------------------------")
+    print("")
 
 
 if __name__ == '__main__':
